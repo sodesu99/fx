@@ -1,0 +1,39 @@
+# 忽略所有CSV文件
+*.csv
+
+
+*.zip
+*.png
+# 忽略日志文件
+*.log
+
+bnn_ppo_log/
+ppo_forex/
+
+# 忽略Python编译文件和虚拟环境
+__pycache__/
+*.py[cod]
+.python-version
+venv/
+env/
+.venv/
+
+# 忽略IDE配置文件
+.vscode/
+.idea/
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+
+# 忽略Jupyter笔记本检查点
+.ipynb_checkpoints/
+
+# 忽略测试覆盖率报告
+.coverage
+htmlcov/
+
+# 忽略包构建目录
+build/
+dist/
+*.egg-info/

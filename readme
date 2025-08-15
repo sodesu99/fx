@@ -1,0 +1,5 @@
+
+wsl环境下训练 ubuntu 22.04
+conda activate chess
+
+chess 环境能进行gpu训练
