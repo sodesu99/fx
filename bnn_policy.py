@@ -7,41 +7,55 @@ from stable_baselines3.common.policies import ActorCriticPolicy
 from stable_baselines3.common.utils import get_schedule_fn
 
 class MC_Dropout_FeaturesExtractor(BaseFeaturesExtractor):
-    """
-    MC Dropout 特征提取器（只提取特征，不决定动作）
-    """
-    def __init__(self, observation_space, features_dim=64):
+    def __init__(self, observation_space, features_dim=256):  # 改为256
         super(MC_Dropout_FeaturesExtractor, self).__init__(observation_space, features_dim)
         input_dim = observation_space.shape[0]
         self.net = nn.Sequential(
-            nn.Linear(input_dim, 64),
+            nn.Linear(input_dim, 128),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(64, 64),
+            nn.Linear(128, 128),
             nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(64, features_dim),
+            nn.Linear(128, features_dim),  # 输出256维
         )
-
+        
     def forward(self, x):
         return self.net(x)
 
     def forward_with_uncertainty(self, x, n_samples=50):
-        """
-        推理时启用 dropout，多次采样
-        """
-        self.train()  # 关键：保持 dropout 开启
+        # 保存原始状态
+        training = self.training
+        device = next(self.parameters()).device
+        self.eval()  # 保持 eval 模式
+        for m in self.net.modules():
+            if isinstance(m, nn.Dropout):
+                m.train()  # 仅启用 dropout
+
+        if isinstance(x, np.ndarray):
+            x = th.tensor(x, dtype=th.float32)
         if x.dim() == 1:
             x = x.unsqueeze(0)
+        x = x.to(device)
+
         predictions = []
-        for _ in range(n_samples):
-            pred = self.net(x)
-            predictions.append(pred.detach().cpu())
+        with th.no_grad():
+            for _ in range(n_samples):
+                pred = self.net(x)
+                predictions.append(pred.detach().cpu())
         predictions = th.stack(predictions)
         mean = predictions.mean(dim=0)
         std = predictions.std(dim=0)
-        return mean, std
 
+        # 恢复原始状态
+        if not training:
+            self.train()
+            for m in self.net.modules():
+                if isinstance(m, nn.Dropout):
+                    m.eval()
+
+
+        return mean, std
 
 class BNNActorCriticPolicy(ActorCriticPolicy):
     """
@@ -52,9 +66,9 @@ class BNNActorCriticPolicy(ActorCriticPolicy):
             *args,
             **kwargs,
             # net_arch 自动构建 mlp_extractor
-            net_arch=[64, 64],  # 提供给 mlp_extractor
+            # net_arch=[64, 64],  # 提供给 mlp_extractor
             features_extractor_class=MC_Dropout_FeaturesExtractor,
-            features_extractor_kwargs={"features_dim": 64},
+            features_extractor_kwargs={"features_dim": 256},
         )
         # ✅ 不手动置空任何组件！
 
@@ -72,6 +86,8 @@ class BNNActorCriticPolicy(ActorCriticPolicy):
             obs = th.tensor(obs, dtype=th.float32).to(self.device)
         if obs.dim() == 1:
             obs = obs.unsqueeze(0)
+
+        # print("Features Extractor:", self.features_extractor)
 
         # 使用特征提取器的 uncertainty 方法
         feature_mean, feature_std = self.features_extractor.forward_with_uncertainty(obs, n_samples)
