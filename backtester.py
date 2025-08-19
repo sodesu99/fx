@@ -2,6 +2,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm  # 导入进度条库
 from forex_envNew import ForexEnv
 from bnn_policy import BNNActorCriticPolicy
 from stable_baselines3 import PPO
@@ -10,13 +11,14 @@ from typing import Dict, Any, Optional
 
 class Backtester:
     """
-    外汇交易模型回测系统
+    外汇交易模型回测系统（带进度显示）
     
     功能:
     1. 加载训练好的模型和环境
     2. 在测试数据上运行完整的交易策略
-    3. 记录详细的交易历史和资产变化
-    4. 生成全面的性能指标和可视化图表
+    3. 显示实时进度条和关键指标
+    4. 记录详细的交易历史和资产变化
+    5. 生成全面的性能指标和可视化图表
     """
     
     def __init__(
@@ -66,6 +68,7 @@ class Backtester:
         # 回测参数
         self.n_samples = n_samples
         self.initial_balance = initial_balance
+        self.total_steps = len(test_df) - self.env.lookback - 1
         
         # 结果存储
         self.history = []
@@ -73,7 +76,7 @@ class Backtester:
     
     def run_backtest(self) -> Dict[str, Any]:
         """
-        运行完整的回测过程
+        运行完整的回测过程（带进度条）
         
         Returns:
             包含回测结果和指标的字典
@@ -81,7 +84,14 @@ class Backtester:
         # 重置环境
         obs, _ = self.env.reset()
         self.history = []
-        episode_return = 0
+        
+        # 创建进度条
+        progress_bar = tqdm(
+            total=self.total_steps, 
+            desc="🚀 回测进度", 
+            unit="step",
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]"
+        )
         
         # 初始状态记录
         self._record_step(
@@ -92,7 +102,14 @@ class Backtester:
             terminated=False
         )
         
+        # 更新进度条初始状态
+        progress_bar.set_postfix(
+            net=f"${self.initial_balance:.0f}", 
+            pos="None"
+        )
+        
         # 运行回测
+        step_count = 0
         while not self.env.done:
             # 使用模型预测动作（包含不确定性估计）
             if isinstance(self.model.policy, BNNActorCriticPolicy):
@@ -118,9 +135,28 @@ class Backtester:
                 terminated=terminated or truncated
             )
             
+            # 更新进度条
+            step_count += 1
+            progress_bar.update(1)
+            
+            # 更新进度条状态信息
+            position_map = {0: "None", 1: "Long", -1: "Short"}
+            position_desc = f"{position_map[self.env.position_type]} {self.env.position_size*100:.1f}%"
+            
+            progress_bar.set_postfix(
+                net=f"${self.env.net_worth:.0f}",
+                ret=f"{(self.env.net_worth/self.initial_balance-1)*100:.1f}%",
+                pos=position_desc,
+                unc=f"{uncertainty:.3f}"
+            )
+            
             # 更新状态
             obs = next_obs
-            episode_return += reward
+        
+        # 关闭进度条
+        progress_bar.close()
+        print(f"✅ 回测完成! 最终净值: ${self.env.net_worth:.2f} | " 
+              f"总收益率: {(self.env.net_worth/self.initial_balance-1)*100:.1f}%")
         
         # 计算性能指标
         self._calculate_performance_metrics()
@@ -210,21 +246,23 @@ class Backtester:
         metrics = self.performance_metrics
         
         # 创建图表
-        plt.figure(figsize=(15, 18))
+        plt.figure(figsize=(15, 20))
         
         # 净值曲线
-        plt.subplot(3, 1, 1)
+        plt.subplot(4, 1, 1)
         plt.plot(df["net_worth"], label="Net Worth")
         plt.plot(df["balance"], label="Balance", alpha=0.7)
-        plt.title(f"Equity Curve (Final: ${metrics['final_net_worth']:,.2f})")
+        plt.title(f"Equity Curve (初始: ${metrics['initial_balance']:,.0f} | "
+                 f"最终: ${metrics['final_net_worth']:,.2f} | "
+                 f"收益率: {metrics['total_return_pct']:.1f}%)")
         plt.ylabel("Value ($)")
         plt.legend()
         plt.grid(True)
         
         # 仓位和动作
-        plt.subplot(3, 1, 2)
+        plt.subplot(4, 1, 2)
         plt.plot(df["position_type"], label="Position Type", color="purple")
-        plt.bar(df.index, df["position_size"], alpha=0.3, label="Position Size", color="green")
+        plt.bar(df.index, df["position_size"] * 100, alpha=0.3, label="Position Size (%)", color="green")
         
         # 标记交易点
         buy_points = df[df["action"] == 1].index
@@ -239,30 +277,39 @@ class Backtester:
         plt.legend()
         plt.grid(True)
         
-        # 技术指标和不确定性
-        plt.subplot(3, 1, 3)
+        # 技术指标
+        plt.subplot(4, 1, 3)
         plt.plot(df["RCI9"], label="RCI9", alpha=0.7)
         plt.plot(df["RCI14"], label="RCI14", alpha=0.7)
         plt.plot(df["RCI21"], label="RCI21", alpha=0.7)
-        plt.plot(df["uncertainty"] * 100, label="Uncertainty (Scaled)", color="black", linestyle="--")
-        plt.title("Technical Indicators and Model Uncertainty")
+        plt.plot(df["bayes_prob"] * 100, label="Bayes Prob (%)", color="purple", linestyle="--")
+        plt.title("Technical Indicators")
+        plt.legend()
+        plt.grid(True)
+        
+        # 不确定性
+        plt.subplot(4, 1, 4)
+        plt.plot(df["uncertainty"], label="Uncertainty", color="red")
+        plt.fill_between(df.index, 0, df["uncertainty"], alpha=0.2, color="red")
+        plt.title("Model Uncertainty")
+        plt.xlabel("Steps")
         plt.legend()
         plt.grid(True)
         
         # 添加指标表格
         metrics_text = (
-            f"Total Return: {metrics['total_return_pct']:.2f}%\n"
-            f"Max Drawdown: {metrics['max_drawdown_pct']:.2f}%\n"
-            f"Sharpe Ratio: {metrics['sharpe_ratio']:.2f}\n"
-            f"Sortino Ratio: {metrics['sortino_ratio']:.2f}\n"
-            f"Total Trades: {metrics['total_trades']}\n"
-            f"Win Rate: {metrics['win_rate']*100:.1f}%\n"
-            f"Avg Win: {metrics['avg_win']*100:.3f}%\n"
-            f"Avg Loss: {metrics['avg_loss']*100:.3f}%\n"
-            f"Profit Factor: {metrics['profit_factor']:.2f}\n"
-            f"Avg Uncertainty: {metrics['uncertainty_avg']:.4f}"
+            f"总收益率: {metrics['total_return_pct']:.2f}%\n"
+            f"最大回撤: {metrics['max_drawdown_pct']:.2f}%\n"
+            f"夏普比率: {metrics['sharpe_ratio']:.2f}\n"
+            f"索提诺比率: {metrics['sortino_ratio']:.2f}\n"
+            f"交易次数: {metrics['total_trades']}\n"
+            f"胜率: {metrics['win_rate']*100:.1f}%\n"
+            f"平均盈利: {metrics['avg_win']*100:.3f}%\n"
+            f"平均亏损: {metrics['avg_loss']*100:.3f}%\n"
+            f"盈亏比: {metrics['profit_factor']:.2f}\n"
+            f"平均不确定性: {metrics['uncertainty_avg']:.4f}"
         )
-        plt.figtext(0.1, 0.02, metrics_text, bbox={"facecolor": "white", "alpha": 0.8}, 
+        plt.figtext(0.1, 0.01, metrics_text, bbox={"facecolor": "white", "alpha": 0.8}, 
                     fontsize=10, family="monospace")
         
         # 保存或显示
