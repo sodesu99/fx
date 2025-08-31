@@ -10,8 +10,7 @@ import os
 # ----------------------------
 # 1. 加载评估数据
 # ----------------------------
-df_eval = pd.read_csv('data/2024min1.csv', index_col=0, parse_dates=True)
-df_eval = df_eval.iloc[5000:6000]  # 取500数据
+df_eval = pd.read_csv('data/test_data.csv', index_col=0, parse_dates=True)
 df_eval.reset_index(inplace=True)
 
 # 添加特征（使用之前的 features.py）
@@ -26,10 +25,14 @@ env = ForexEnv(df_eval, initial_balance=10000)
 # ----------------------------
 # 3. 加载训练好的模型
 # ----------------------------
-if not os.path.exists("bnn_ppo_forex.zip"):
+if not os.path.exists("bnn_ppo_forex_final.zip"):
     raise FileNotFoundError("请先运行 train.py 生成模型")
 
-model = PPO.load("bnn_ppo_forex", env=env, custom_objects={"policy_class": BNNActorCriticPolicy})
+model = PPO.load(
+    "bnn_ppo_forex_final.zip",
+    env=env,
+    custom_objects={"policy": BNNActorCriticPolicy}  # ← 注意 key 是 "policy"
+)
 
 print("✅ 模型加载成功！开始评估...")
 
@@ -96,8 +99,8 @@ def plot_trading_signals(df, env, actions, positions, net_worths, save_path="tra
     ax1.plot(df.index, df['close'], label='EUR/USD Price', color='blue', alpha=0.9, linewidth=1)
 
     # 2. 标出买入（绿色三角）和卖出（红色倒三角）
-    buy_signals = [(i, df['close'].iloc[i + 50]) for i, a in enumerate(actions) if a == 1]
-    sell_signals = [(i, df['close'].iloc[i + 50]) for i, a in enumerate(actions) if a == 2]
+    buy_signals = [(i, df['close'].iloc[i]) for i, a in enumerate(actions) if a == 1]
+    sell_signals = [(i, df['close'].iloc[i]) for i, a in enumerate(actions) if a == 2]
 
     if buy_signals:
         idx, prices = zip(*buy_signals)

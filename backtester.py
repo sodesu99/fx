@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from tqdm import tqdm  # 导入进度条库
+from tqdm import tqdm
 from forex_envNew import ForexEnv
 from bnn_policy import BNNActorCriticPolicy
 from stable_baselines3 import PPO
@@ -115,7 +115,7 @@ class Backtester:
             if isinstance(self.model.policy, BNNActorCriticPolicy):
                 action, _ = self.model.predict(obs, deterministic=True)
                 feature_mean, feature_std = self.model.policy.predict_with_uncertainty(obs, self.n_samples)
-                uncertainty = feature_std.mean()  # 使用平均标准差作为不确定性度量
+                uncertainty = float(feature_std.mean())  # 确保转换为Python浮点数
             else:
                 action, _ = self.model.predict(obs, deterministic=True)
                 uncertainty = 0.0
@@ -245,6 +245,9 @@ class Backtester:
         df = pd.DataFrame(self.history)
         metrics = self.performance_metrics
         
+        # 确保数据类型正确
+        df["uncertainty"] = pd.to_numeric(df["uncertainty"], errors="coerce").fillna(0)
+        
         # 创建图表
         plt.figure(figsize=(15, 20))
         
@@ -290,7 +293,16 @@ class Backtester:
         # 不确定性
         plt.subplot(4, 1, 4)
         plt.plot(df["uncertainty"], label="Uncertainty", color="red")
-        plt.fill_between(df.index, 0, df["uncertainty"], alpha=0.2, color="red")
+        
+        # 确保数据类型正确后再绘制填充区域
+        if df["uncertainty"].dtype in [np.float32, np.float64]:
+            plt.fill_between(
+                df.index, 
+                0, 
+                df["uncertainty"], 
+                alpha=0.2, 
+                color="red"
+            )
         plt.title("Model Uncertainty")
         plt.xlabel("Steps")
         plt.legend()
@@ -329,9 +341,9 @@ class Backtester:
 # 使用示例
 if __name__ == "__main__":
     # 1. 准备测试数据
-    test_df = pd.read_csv('./data/2024min1.csv')
-    test_df = test_df.iloc[15000:20000]  # 取500数据
-    test_df.reset_index(inplace=True)
+    test_df = pd.read_csv('./data/test_data.csv')
+    # test_df = test_df.iloc[15000:20000]  # 取500数据
+    # test_df.reset_index(inplace=True)
 
     from featuresNew import add_features
     test_df = add_features(test_df)
@@ -340,6 +352,7 @@ if __name__ == "__main__":
     # 2. 初始化回测器
     backtester = Backtester(
         model_path="bnn_ppo_forex_final.zip",
+        # cmodel_path="logs/best_model.zip",
         vec_normalize_path="eval_vec_normalize.pkl",
         test_df=test_df,
         initial_balance=10000.0,

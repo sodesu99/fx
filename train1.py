@@ -1,4 +1,4 @@
-# train.py - 修复版
+# %%
 import numpy as np
 import pandas as pd
 import torch as th
@@ -17,6 +17,12 @@ SEED = 42
 set_random_seed(SEED, using_cuda=True)
 np.random.seed(SEED)
 th.manual_seed(SEED)
+
+
+# %%
+
+
+# %%
 
 def create_data_splits(df: pd.DataFrame, train_ratio: float = 0.7, val_ratio: float = 0.15):
     """
@@ -37,7 +43,38 @@ def create_data_splits(df: pd.DataFrame, train_ratio: float = 0.7, val_ratio: fl
     
     return df_train, df_val, df_test
 
-def create_learning_rate_schedule(initial_lr: float = 3e-4, warmup_steps: int = 10000, decay_factor: float = 0.5):
+
+# %%
+
+# ✅ 主程序开始
+print("🚀 开始训练 BNN-PPO 外汇交易模型")
+print("=" * 50)
+
+# 1. 加载和预处理数据
+print("📂 加载数据...")
+df = pd.read_csv('./data/2024min1.csv', index_col=0, parse_dates=True)
+
+# ✅ 更保守的数据使用策略
+data_size = min(10000, len(df))  # 限制数据大小，避免内存问题
+df = df.iloc[-data_size:].copy()  # 使用最新数据
+df.reset_index(inplace=True)
+
+print(f"   原始数据: {len(df):,} 行")
+
+# 2. 特征工程
+print("🔧 特征工程...")
+from featuresNew import add_features
+df = add_features(df)
+print(f"   处理后: {len(df):,} 行, {len(df.columns)} 列")
+
+# ✅ 3. 正确的数据分割
+df_train, df_val, df_test = create_data_splits(df)
+
+
+
+# %%
+
+def create_learning_rate_schedule(initial_lr: float = 3e-4, warmup_steps: int = 10000, decay_factor: float = 0.5, total_timesteps = 100000) -> Callable[[float], float]:
     """
     ✅ 改进：学习率调度器
     """
@@ -100,29 +137,7 @@ def test_environment_safety(env_class, df_sample: pd.DataFrame):
         print("✅ 环境安全性测试通过!")
         return True
 
-# ✅ 主程序开始
-print("🚀 开始训练 BNN-PPO 外汇交易模型")
-print("=" * 50)
-
-# 1. 加载和预处理数据
-print("📂 加载数据...")
-df = pd.read_csv('./data/2024min1.csv', index_col=0, parse_dates=True)
-
-# ✅ 更保守的数据使用策略
-data_size = min(100000, len(df))  # 限制数据大小，避免内存问题
-df = df.iloc[-data_size:].copy()  # 使用最新数据
-df.reset_index(inplace=True)
-
-print(f"   原始数据: {len(df):,} 行")
-
-# 2. 特征工程
-print("🔧 特征工程...")
-from featuresNew import add_features
-df = add_features(df)
-print(f"   处理后: {len(df):,} 行, {len(df.columns)} 列")
-
-# ✅ 3. 正确的数据分割
-df_train, df_val, df_test = create_data_splits(df)
+# %%
 
 # 4. 环境安全性测试
 if not test_environment_safety(ForexEnv, df_train.iloc[:5000]):
@@ -149,6 +164,8 @@ eval_env = ForexEnv(
 )
 eval_env = Monitor(eval_env, filename="logs/eval_monitor.csv")
 
+# %%
+
 # 7. 向量化环境
 train_vec_env = DummyVecEnv([lambda: train_env])
 train_vec_env = VecNormalize(
@@ -171,8 +188,10 @@ eval_vec_env = VecNormalize(
     epsilon=1e-8,
 )
 
+# %%
+
 # ✅ 8. 设置训练参数
-total_timesteps = 100000  # 增加训练步数
+total_timesteps = 10000  # 增加训练步数
 print(f"🎯 总训练步数: {total_timesteps:,}")
 
 # 9. 创建回调函数
@@ -206,6 +225,9 @@ checkpoint_callback = CheckpointCallback(
     verbose=1,
 )
 
+
+# %%
+
 # ✅ 10. 创建模型（优化超参数）
 print("🤖 创建 PPO 模型...")
 
@@ -214,7 +236,7 @@ model = PPO(
     env=train_vec_env,
     verbose=1,
     tensorboard_log="./bnn_ppo_log/",
-    learning_rate=create_learning_rate_schedule(2e-4, 15000, 0.3),  # ✅ 更低学习率
+    learning_rate=create_learning_rate_schedule(2e-4, 15000, 0.3, total_timesteps = total_timesteps),  # ✅ 更低学习率
     batch_size=512,        # ✅ 增大批次
     n_steps=2048,          # ✅ 增大步数
     gamma=0.995,           # ✅ 更重视长期奖励
@@ -243,6 +265,8 @@ trainable_params = sum(p.numel() for p in model.policy.parameters() if p.require
 print(f"   总参数: {total_params:,}")
 print(f"   可训练参数: {trainable_params:,}")
 
+# %%
+
 # ✅ 11. 开始训练
 print("\n" + "=" * 50)
 print("🚀 开始训练...")
@@ -267,6 +291,8 @@ except Exception as e:
     import traceback
     traceback.print_exc()
 
+# %%
+
 # 12. 保存模型和环境参数
 print("💾 保存模型...")
 model.save("bnn_ppo_forex_final")
@@ -286,3 +312,65 @@ print(f"   监控文件: logs/train_monitor.csv")
 print("🚀 运行评估:")
 print(f"   python evaluate.py")
 print("=" * 50)
+
+# %%
+
+# 在 evaluate.py 末尾添加此函数
+def plot_trading_signals(df,  save_path="trading_signals.png"):
+    """
+    绘制交易信号叠加在价格图上
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    fig, ax1 = plt.subplots(figsize=(16, 8))
+
+
+    # 1. 绘制价格曲线
+    ax1.plot(df['timestamp'], df['close'], label='EUR/USD Price', color='red', alpha=0.9, linewidth=1)
+
+    # 4. 设置标签和标题
+    ax1.set_title('EUR/USD Trading Signals with PPO + BNN Strategy', fontsize=16)
+    ax1.set_xlabel('Time Index')
+    ax1.set_ylabel('Price', fontsize=12)
+    ax1.legend(loc='upper left')
+    ax1.grid(True, alpha=0.3)
+
+    fig, ax2 = plt.subplots(figsize=(16, 8))
+
+
+    # 1. RCI曲线
+    ax2.plot(df['timestamp'], df['RCI21'], label='RCI21', color='blue', alpha=0.9, linewidth=1)
+
+
+    # 4. 设置标签和标题
+    ax2.set_title('EUR/USD Trading Signals with PPO + BNN Strategy', fontsize=16)
+    ax2.set_ylabel('RCI21', fontsize=12)
+    ax2.legend(loc='upper left')
+    ax2.grid(True, alpha=0.3)
+
+    ax3 = ax1.twinx()
+    ax3.plot(df['timestamp'], df['RCI21'], label='RCI21', color='blue', alpha=0.9, linewidth=1)
+
+
+    # 4. 设置标签和标题
+    ax3.set_ylabel('RCI21', fontsize=12)
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+
+    # 5. 保存并显示图表
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.show()
+
+    print(f"✅ 交易信号图已保存: {save_path}")
+
+
+
+# %%
+
+
+# %%
+plot_trading_signals(df_val)
+
+

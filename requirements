@@ -1,1 +1,2 @@
 pip install dukascopy-python
+pip install tqdm matplotlib pandas numpy stable-baselines3
