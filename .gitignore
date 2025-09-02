@@ -12,6 +12,7 @@
 *.npz
 bnn_ppo_log/
 ppo_forex/
+sac_lstm_bnn_log/
 
 # 忽略Python编译文件和虚拟环境
 __pycache__/

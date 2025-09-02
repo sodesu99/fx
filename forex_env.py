@@ -1,4 +1,4 @@
-# forex_envNew.py - 修复版
+
 import gymnasium as gym
 import numpy as np
 import pandas as pd
@@ -170,93 +170,6 @@ class ForexEnv(gym.Env):
         # 2. 执行交易逻辑
         trade_executed = False
         
-        if action == 1 and self.position_type != 1:  # 买入
-            # 平空仓
-            if self.position_type == -1:
-                profit = self.balance * self.position_size * (self.entry_price - current_price) / self.entry_price
-                self.balance += profit
-            
-            # 开多仓
-            self.position_type = 1
-            self.entry_price = current_price
-            self.position_size = target_size
-            self.balance *= (1 - self.cost_ratio)
-            trade_executed = True
-
-        elif action == 2 and self.position_type != -1:  # 卖出
-            # 平多仓
-            if self.position_type == 1:
-                profit = self.balance * self.position_size * (current_price - self.entry_price) / self.entry_price
-                self.balance += profit
-            
-            # 开空仓
-            self.position_type = -1
-            self.entry_price = current_price
-            self.position_size = target_size
-            self.balance *= (1 - self.cost_ratio)
-            trade_executed = True
-
-        # ✅ 3. 修复：正确计算未实现盈亏
-        unrealized_pnl = 0.0
-        if self.position_type == 1:
-            unrealized_pnl = self.position_size * (current_price - self.entry_price) / self.entry_price
-        elif self.position_type == -1:
-            unrealized_pnl = self.position_size * (self.entry_price - current_price) / self.entry_price
-
-        # ✅ 4. 正确更新净值
-        self.equity = self.balance * (1 + unrealized_pnl)
-        self.net_worth = self.equity
-
-        # 5. 计算基础收益
-        base_return = (self.equity - prev_equity) / (prev_equity + 1e-8)
-
-        # 6. 奖励函数：正负分离 + 风险调整
-        if base_return > 0:
-            reward = base_return * (1 + 2 * overall_confidence)
-        else:
-            reward = base_return * 0.5
-
-        # 7. 更新历史收益
-        self.returns_history.append(base_return)
-        if len(self.returns_history) > self.window_size:
-            self.returns_history.pop(0)
-
-        # 8. Calmar Ratio 计算（更稳健）
-        calmar_ratio = 0.0
-        if len(self.returns_history) > 10:  # 至少需要10个样本
-            try:
-                cum_returns = np.cumprod([1 + max(r, -0.1) for r in self.returns_history])  # 限制极端损失
-                peak = np.maximum.accumulate(cum_returns)
-                drawdown = (peak - cum_returns) / (peak + 1e-8)
-                max_drawdown = max(np.max(drawdown), 1e-6)
-                annual_return = (cum_returns[-1] ** (252.0 * 24 / len(cum_returns))) - 1
-                calmar_ratio = annual_return / max_drawdown
-                calmar_ratio = np.clip(calmar_ratio, -10, 10)  # 限制极值
-            except:
-                calmar_ratio = 0.0
-
-        reward += self.risk_weight * calmar_ratio
-
-        # 9. 交易频率惩罚
-        if trade_executed:
-            reward -= self.trade_penalty
-
-        # 10. 下一步
-        self.t += 1
-
-        # 11. 判断终止
-        terminated = False
-        truncated = False
-        
-        if self.t >= self.max_t:
-            self.done = True
-            truncated = True
-
-        # ✅ 12. 净值保护（防止爆仓）
-        if self.net_worth <= self.initial_balance * 0.1:  # 净值低于10%
-            print(f"⚠️ 触发止损: 净值 {self.net_worth:.0f} < {self.initial_balance * 0.1:.0f}")
-            return self._handle_termination()
-
         # 13. 返回
         obs = self._get_obs()
         info = {
@@ -266,8 +179,6 @@ class ForexEnv(gym.Env):
             'position_type': self.position_type,
             'position_size': self.position_size,
             'uncertainty': uncertainty_std,
-            'calmar_ratio': calmar_ratio,
-            'base_return': base_return,
             'overall_confidence': overall_confidence,
             'trade_executed': trade_executed,
         }

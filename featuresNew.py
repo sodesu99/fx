@@ -223,3 +223,43 @@ def get_feature_names() -> list:
         'MA50_Ratio', 'close_norm', 'volume_norm', 'High_Low_Range',
         'Bayesian_Prob'
     ]
+
+
+# 示例：如果你的 add_features 没有生成这些，请补充
+def add_features_lstm(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    
+    # 必要字段检查
+    required = ['close', 'high', 'low', 'volume']
+    for col in required:
+        if col not in df.columns:
+            df[col] = 1.0  # 占位（实际应确保数据完整）
+
+    # 1. 技术指标
+    df['RSI'] = 50 + np.random.randn(len(df)) * 20  # 示例，替换为真实计算
+    df['MACD_Hist'] = np.random.randn(len(df)) * 1e-4
+
+    # 2. 波动率
+    df['log_ret'] = np.log(df['close'] / df['close'].shift(1))
+    df['Volatility'] = df['log_ret'].rolling(20).std() * np.sqrt(252 * 24 * 60)
+
+    # 3. 归一化价格
+    df['close_norm'] = (df['close'] - df['close'].rolling(50).mean()) / df['close'].rolling(50).std()
+
+    # 4. 成交量比率
+    df['volume_norm'] = np.log(df['volume'] / df['volume'].rolling(50).mean())
+
+    # 5. 高低范围
+    df['High_Low_Range'] = (df['high'] - df['low']) / df['close']
+
+    # 6. MA50 Ratio
+    df['MA50_Ratio'] = df['close'] / df['close'].rolling(50).mean()
+
+    # 7. RCI9（Rank Correlation Index，示例）
+    df['RCI9'] = 50 + np.random.randn(len(df)) * 30
+
+    # 8. Bayesian_Prob（假设你有）
+    df['Bayesian_Prob'] = 0.5 + np.random.randn(len(df)) * 0.2
+    df['Bayesian_Prob'] = df['Bayesian_Prob'].clip(0.1, 0.9)
+
+    return df.dropna().reset_index(drop=True)
