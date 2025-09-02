@@ -79,187 +79,136 @@ def add_time_features(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
-def add_features(df0: pd.DataFrame) -> pd.DataFrame:
-    """
-    ✅ 改进版：特征工程主函数
-    """
-    df = df0.copy()
+def calculate_price_position(high: pd.Series, low: pd.Series, close: pd.Series, window: int = 20) -> pd.Series:
+    """计算价格在最近窗口内的相对位置"""
+    highest_high = high.rolling(window).max()
+    lowest_low = low.rolling(window).min()
     
-    # 确保数据类型正确
-    numeric_cols = ['close', 'high', 'low', 'volume']
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+    # 避免除零
+    range_ = highest_high - lowest_low
+    range_ = range_.replace(0, 1)  # 如果range为0，设为1避免除零
     
-    print("🔧 开始特征工程...")
-    
-    # ✅ 1. 优化版RCI指标
-    print("   计算RCI指标...")
-    # df['RCI9'] = calculate_rci_vectorized(df['close'], 9)
-    # df['RCI14'] = calculate_rci_vectorized(df['close'], 14)
-    df['RCI21'] = calculate_rci_vectorized(df['close'], 21)
-    
-    # # ✅ 2. 新增：布林带
-    # print("   计算布林带...")
-    # bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df['close'])
-    # df['BB_upper'] = bb_upper
-    # df['BB_middle'] = bb_middle
-    # df['BB_lower'] = bb_lower
-    # df['BB_width'] = (bb_upper - bb_lower) / bb_middle
-    # df['BB_position'] = (df['close'] - bb_lower) / (bb_upper - bb_lower)
-    
-    # # ✅ 3. 新增：MACD
-    # print("   计算MACD...")
-    # macd, signal, hist = calculate_macd(df['close'])
-    # df['MACD'] = macd
-    # df['MACD_signal'] = signal
-    # df['MACD_hist'] = hist
-    # df['MACD_crossover'] = ((macd > signal) & (macd.shift() <= signal.shift())).astype(int)
-    
-    # # ✅ 4. 新增：ATR
-    # print("   计算ATR...")
-    # if all(col in df.columns for col in ['high', 'low']):
-    #     df['ATR'] = calculate_atr(df['high'], df['low'], df['close'])
-    #     df['ATR_ratio'] = df['ATR'] / df['close']  # 相对ATR
-    
-    # # ✅ 5. 新增：RSI
-    # print("   计算RSI...")
-    # df['RSI'] = calculate_rsi(df['close'])
-    # df['RSI_overbought'] = (df['RSI'] > 70).astype(int)
-    # df['RSI_oversold'] = (df['RSI'] < 30).astype(int)
-    
-    # # 6. 原有指标（改进）
-    # print("   计算基础指标...")
-    # df['Volatility'] = df['close'].pct_change().rolling(20).std()
-    
-    
-    # # 多周期移动平均
-    # for period in [20, 50, 200]:
-    #     df[f'MA{period}'] = df['close'].rolling(period).mean()
-    #     df[f'MA{period}_Ratio'] = df['close'] / df[f'MA{period}']
+    return (close - lowest_low) / range_
 
-    df['RCI9'] = 0
-    df['RCI14'] = 0
-    df['MA50_Ratio'] =0
-    df['Volatility'] = 0
-
-    # # ✅ 7. 改进：价格动量指标
-    # print("   计算动量指标...")
-    # for period in [5, 10, 20]:
-    #     df[f'Price_Change_{period}'] = df['close'].pct_change(period)
-    #     df[f'Price_Momentum_{period}'] = (df['close'] / df['close'].shift(period) - 1)
-    
-    # # ✅ 8. 新增：成交量指标
-    # if 'volume' in df.columns:
-    #     print("   计算成交量指标...")
-    #     df['Volume_MA'] = df['volume'].rolling(20).mean()
-    #     df['Volume_Ratio'] = df['volume'] / df['Volume_MA']
-    #     df['Price_Volume'] = df['close'].pct_change() * df['volume']  # 价量配合
-    
-    # ✅ 9. 新增：时间特征
-    print("   添加时间特征...")
-    df = add_time_features(df)
-    
-    # 10. 贝叶斯先验（保留原有逻辑）
-    df['Bayesian_Prob'] = 0.5
-    df['Bayesian_Prob'] = df['Bayesian_Prob'].fillna(0.5)
-    
-    # ✅ 11. 改进：动态归一化窗口
-    window = min(100, len(df) // 10)  # 动态窗口大小
-    
-    print(f"   使用窗口大小: {window}")
-    
-    # 高低价范围
-    df['High_Low_Range'] = (df['high'] - df['low']) / df['close']
-    
-    # 归一化处理（使用滚动窗口）
-    df['close_norm'] = (df['close'] - df['close'].rolling(window).min()) / \
-                       (df['close'].rolling(window).max() - df['close'].rolling(window).min() + 1e-8)
-    
-    if 'volume' in df.columns:
-        df['volume_norm'] = (df['volume'] - df['volume'].rolling(window).min()) / \
-                           (df['volume'].rolling(window).max() - df['volume'].rolling(window).min() + 1e-8)
-    
-    # ✅ 12. 特征选择和清理
-    print("   清理特征...")
-    
-    # 移除中间计算列
-    cols_to_drop = ['BB_upper', 'BB_lower', 'Volume_MA'] + [f'MA{p}' for p in [20, 200]]
-    df = df.drop(columns=[col for col in cols_to_drop if col in df.columns])
-    
-    # 处理无穷值和NaN
-    numeric_columns = df.select_dtypes(include=[np.number]).columns
-    df[numeric_columns] = df[numeric_columns].replace([np.inf, -np.inf], np.nan)
-    
-    # 记录清理前的长度
-    initial_len = len(df)
-    df = df.dropna()
-    final_len = len(df)
-    
-    print(f"✅ 特征工程完成！")
-    print(f"   - 数据长度: {initial_len} → {final_len} (丢弃 {initial_len - final_len} 行)")
-    print(f"   - 特征维度: {len(df.columns)}")
-    
-    # ✅ 13. 特征重要性提示
-    important_features = [
-        'RCI9', 'RCI14', 'RCI21', 'BB_position', 'BB_width', 
-        'MACD', 'MACD_hist', 'RSI', 'ATR_ratio', 'Volatility',
-        'MA50_Ratio', 'close_norm', 'volume_norm', 'High_Low_Range',
-        'Bayesian_Prob'
-    ]
-    
-    available_features = [f for f in important_features if f in df.columns]
-    print(f"   - 核心特征: {available_features}")
-    
-    return df
-
-def get_feature_names() -> list:
-    """
-    ✅ 新增：获取特征名称列表（用于模型输入）
-    """
-    return [
-        'RCI9', 'RCI14', 'RCI21', 'BB_position', 'BB_width',
-        'MACD', 'MACD_hist', 'RSI', 'ATR_ratio', 'Volatility',
-        'MA50_Ratio', 'close_norm', 'volume_norm', 'High_Low_Range',
-        'Bayesian_Prob'
-    ]
-
-
-# 示例：如果你的 add_features 没有生成这些，请补充
 def add_features_lstm(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     
-    # 必要字段检查
-    required = ['close', 'high', 'low', 'volume']
-    for col in required:
+    # 确保有必要的列
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    for col in required_cols:
         if col not in df.columns:
-            df[col] = 1.0  # 占位（实际应确保数据完整）
-
+            raise ValueError(f"DataFrame must contain '{col}' column")
+    
     # 1. 技术指标
-    df['RSI'] = 50 + np.random.randn(len(df)) * 20  # 示例，替换为真实计算
-    df['MACD_Hist'] = np.random.randn(len(df)) * 1e-4
+    print("   计算RSI...")
+    df['RSI'] = calculate_rsi(df['close'])
+
+    # MACD 指标
+    print("   计算MACD...")
+    macd, signal, hist = calculate_macd(df['close'])
+    df['MACD'] = macd
+    df['MACD_Signal'] = signal
+    df['MACD_Hist'] = hist
 
     # 2. 波动率
+    print("   计算波动率...")
     df['log_ret'] = np.log(df['close'] / df['close'].shift(1))
     df['Volatility'] = df['log_ret'].rolling(20).std() * np.sqrt(252 * 24 * 60)
 
-    # 3. 归一化价格
-    df['close_norm'] = (df['close'] - df['close'].rolling(50).mean()) / df['close'].rolling(50).std()
+    # 3. 移动平均线
+    print("   计算移动平均线...")
+    for period in [20, 50, 200]:
+        df[f'MA{period}'] = df['close'].rolling(period).mean()
+        df[f'MA{period}_Ratio'] = df['close'] / df[f'MA{period}']
 
-    # 4. 成交量比率
-    df['volume_norm'] = np.log(df['volume'] / df['volume'].rolling(50).mean())
+    # 4. RCI
+    print("   计算RCI...")
+    df['RCI21'] = calculate_rci_vectorized(df['close'], 21)
 
-    # 5. 高低范围
-    df['High_Low_Range'] = (df['high'] - df['low']) / df['close']
+    # 5. 布林带
+    print("   计算布林带...")
+    bb_upper, bb_middle, bb_lower = calculate_bollinger_bands(df['close'])
+    df['BB_upper'] = bb_upper
+    df['BB_middle'] = bb_middle
+    df['BB_lower'] = bb_lower
+    df['BB_width'] = (bb_upper - bb_lower) / bb_middle
 
-    # 6. MA50 Ratio
-    df['MA50_Ratio'] = df['close'] / df['close'].rolling(50).mean()
+    # 6. 价格位置
+    print("   计算价格位置...")
+    df['Price_Position'] = calculate_price_position(df['high'], df['low'], df['close'])
 
-    # 7. RCI9（Rank Correlation Index，示例）
-    df['RCI9'] = 50 + np.random.randn(len(df)) * 30
+    # 7. 成交量指标
+    print("   计算成交量指标...")
+    df['Volume_MA'] = df['volume'].rolling(20).mean()
+    df['Volume_Ratio'] = df['volume'] / df['Volume_MA']
+    df['Volume_Change'] = df['volume'].pct_change()
 
-    # 8. Bayesian_Prob（假设你有）
-    df['Bayesian_Prob'] = 0.5 + np.random.randn(len(df)) * 0.2
-    df['Bayesian_Prob'] = df['Bayesian_Prob'].clip(0.1, 0.9)
+    # 8. 价格动量
+    print("   计算价格动量...")
+    df['Momentum_5'] = df['close'].pct_change(5)
+    df['Momentum_10'] = df['close'].pct_change(10)
+    df['Momentum_20'] = df['close'].pct_change(20)
 
-    return df.dropna().reset_index(drop=True)
+    # 9. 价格范围
+    print("   计算价格范围...")
+    df['Daily_Range'] = (df['high'] - df['low']) / df['close']
+    df['Range_MA'] = df['Daily_Range'].rolling(20).mean()
+    df['Range_Ratio'] = df['Daily_Range'] / df['Range_MA']
+
+    # 10. ATR
+    print("   计算ATR...")
+    df['ATR'] = calculate_atr(df['high'], df['low'], df['close'])
+    df['ATR_Ratio'] = df['ATR'] / df['close']
+
+    # 11. 时间特征（如果有时间戳）
+    if 'timestamp' in df.columns:
+        print("   添加时间特征...")
+        df = add_time_features(df)
+
+    # 12. 为环境准备的特殊特征
+    print("   准备环境特征...")
+    # 这里添加任何环境需要的特殊特征
+    
+    # 填充NaN值
+    df = df.fillna(method='ffill').fillna(method='bfill').fillna(0)
+    
+    print(f"   特征工程完成，共生成 {len(df.columns)} 个特征")
+    return df
+
+# 为环境类提供辅助函数
+def get_env_observation_features(df: pd.DataFrame, t: int, position_size: float = 0.0, 
+                               entry_price: float = 0.0, margin_level: float = float('inf')) -> np.ndarray:
+    """
+    为环境观察向量生成特征
+    """
+    if t >= len(df):
+        t = len(df) - 1
+    
+    row = df.iloc[t]
+    close = row['close']
+    
+    # 计算未实现盈亏比率（如果持有仓位）
+    unrealized_pnl_ratio = 0.0
+    if position_size != 0 and entry_price != 0:
+        if position_size > 0:
+            unrealized_pnl_ratio = (close - entry_price) / entry_price
+        else:
+            unrealized_pnl_ratio = (entry_price - close) / entry_price
+    
+    # 确保所有需要的特征都存在
+    features = [
+        row.get('log_ret', 0.0),
+        row.get('RSI', 50.0) / 100.0 - 0.5,  # 归一化到[-0.5, 0.5]
+        row.get('MACD_Hist', 0.0),
+        row.get('BB_width', 0.0),
+        row.get('Volatility', 0.0),
+        row.get('Volume_Ratio', 1.0) - 1.0,  # 归一化
+        row.get('Price_Position', 0.5) - 0.5,  # 归一化到[-0.5, 0.5]
+        (close - row.get('MA50', close)) / close if 'MA50' in row else 0.0,
+        position_size / 0.5,  # 假设最大仓位为0.5
+        unrealized_pnl_ratio,
+        min(margin_level / 100.0, 5.0) if margin_level != float('inf') else 5.0,  # 截断到5.0
+        row.get('RCI21', 0.0) / 100.0  # 归一化到[-1, 1]
+    ]
+    
+    return np.nan_to_num(np.array(features, dtype=np.float32), nan=0.0, posinf=5.0, neginf=-5.0)

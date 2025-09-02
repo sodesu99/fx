@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from collections import deque
 import gymnasium as gym
+from featuresNew import get_env_observation_features
 
 
 class MarginForexEnv(gym.Env):
@@ -80,54 +81,13 @@ class MarginForexEnv(gym.Env):
         return self._get_obs(), {}
 
     def _get_observation_vector(self, t: int) -> np.ndarray:
-        # （同前，省略细节，返回12维特征）
-        # 注意：可以在状态中加入 margin_level / position_size 等
-        t_safe = max(0, min(t, len(self.df) - 1))
-        row = self.df.iloc[t_safe]
-        close = row['close']
-
-        log_ret_1 = np.log(close / self.df.iloc[max(0, t_safe - 1)]['close']) if t_safe > 0 else 0.0
-        rsi = row.get('RSI', 50.0) / 50.0 - 1.0
-        macd_hist = row.get('MACD_Hist', 0.0) / (close * 1e-4)
-        bb_width = row.get('BB_Width', 0.0) / close
-
-        window = 20
-        start = max(0, t_safe - window)
-        prices = self.df['close'][start:t_safe + 1]
-        volatility = np.log(prices / prices.shift(1)).std() * np.sqrt(252 * 24 * 60) if len(prices) > 1 else 0.0
-
-        vol_mean = self.df['volume'][max(0, t_safe - 50):t_safe + 1].mean()
-        volume_ratio = np.log(row['volume'] / vol_mean) if vol_mean > 0 else 0.0
-
-        high_20 = self.df['high'][max(0, t_safe - 20):t_safe + 1].max()
-        low_20 = self.df['low'][max(0, t_safe - 20):t_safe + 1].min()
-        price_position = (close - low_20) / (high_20 - low_20 + 1e-8) * 2 - 1
-
-        ma50 = self.df['close'][max(0, t_safe - 50):t_safe + 1].mean()
-        ma_dev = (close - ma50) / close
-
-        unrealized_pnl_ratio = 0.0
-        if self.position_size != 0 and self.entry_price != 0:
-            if self.position_size > 0:
-                pnl = (close - self.entry_price) / self.entry_price
-            else:
-                pnl = (self.entry_price - close) / self.entry_price
-            unrealized_pnl_ratio = pnl * abs(self.position_size)
-
-        return np.nan_to_num(np.array([
-            log_ret_1 * 100,
-            rsi,
-            macd_hist,
-            bb_width,
-            volatility * 100,
-            volume_ratio,
-            price_position,
-            ma_dev,
-            self.position_size / 0.5,  # 假设 max=0.5
-            unrealized_pnl_ratio,
-            self.margin_level / 100.0,  # 归一化加入状态
-            0.0  # 占位
-        ], dtype=np.float32), nan=0.0, posinf=5.0, neginf=-5.0)
+        # 使用辅助函数生成观察向量
+        return get_env_observation_features(
+            self.df, t, 
+            self.position_size, 
+            self.entry_price, 
+            self.margin_level
+        )
 
     def _get_obs(self):
         return np.array(list(self.history_buffer))
